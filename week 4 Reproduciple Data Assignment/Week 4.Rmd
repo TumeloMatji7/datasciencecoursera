@@ -1,0 +1,133 @@
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+Project_Synopsis
+Data is analysed for storm and severe weather effects
+on society. Two folds objective: first, recognize the
+eventsdetrimental to public health and second, 
+recognizethose which have most severe economic
+consequences. The data is taken from NOAA Strom
+database (1950-2011)
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = FALSE)
+```
+# Libraries are imported as
+```{r import_libs, echo=TRUE}
+library(dplyr)
+plot <- function(names, columns, totals, colors, main){
+  colnames(totals) <- names
+  
+  par(las=2,mar=c(6,4,1,1))
+  barplot(totals, col=colors,main=main,cex.names  = 0.8,cex.axis = 0.8)
+  legend("topright", columns,fill=colors,bty = "n")
+}
+```
+
+# Processing data as
+```{r read_data, cache=TRUE}
+StormData <- read.csv("data/StormData.csv.bz2")
+colnames(StormData)
+```
+
+# Scrubbing the labels
+```{r CleanEventType}
+event_types <- as.data.frame(table(StormData$EVTYPE))
+event_types <- event_types[order(event_types$Var1), ]
+```
+# Those records that possesses multiple events need to be properly counted and categorized
+StormData$EVTYPE <- as.character(StormData$EVTYPE)
+StormData$EVTYPE[grepl("/|&|and", StormData$EVTYPE,ignore.case = TRUE)] <- "Multiple Event"
+StormData$EVTYPE[grepl("volc", StormData$EVTYPE,ignore.case = TRUE)] <- "Volcano"
+StormData$EVTYPE[grepl("wind|wnd", StormData$EVTYPE,ignore.case = TRUE)] <- "WIND"
+StormData$EVTYPE[grepl("funnel|tornado", StormData$EVTYPE,ignore.case = TRUE)] <- "Tornado"
+StormData$EVTYPE[grepl("glaze", StormData$EVTYPE,ignore.case = TRUE)] <- "Glaze"
+StormData$EVTYPE[grepl("hail", StormData$EVTYPE,ignore.case = TRUE)] <- "Hail"
+StormData$EVTYPE[grepl("dust", StormData$EVTYPE,ignore.case = TRUE)]  <- "DUST"
+StormData$EVTYPE[grepl("flood", StormData$EVTYPE,ignore.case = TRUE)] <- "FLOOD"
+StormData$EVTYPE[grepl("ic(e|y)", StormData$EVTYPE,ignore.case = TRUE)] <- "Ice"
+StormData$EVTYPE[grepl("fire|smoke", StormData$EVTYPE,ignore.case = TRUE)] <- "FIRE"
+StormData$EVTYPE[grepl("thunder", StormData$EVTYPE,ignore.case = TRUE)] <- "Thunder Storm"
+StormData$EVTYPE[grepl("slide|eros", StormData$EVTYPE,ignore.case = TRUE)] <- "Erosion"
+StormData$EVTYPE[grepl("rain", StormData$EVTYPE,ignore.case = TRUE)] <- "Rain"
+StormData$EVTYPE[grepl("freez|cold|snow|chill|winter", StormData$EVTYPE,ignore.case = TRUE)] <- "Cold Weather"
+StormData$EVTYPE[grepl("TROPICAL.STORM", StormData$EVTYPE,ignore.case = TRUE)] <- "TROPICAL STORM"
+StormData$EVTYPE[grepl("heat", StormData$EVTYPE,ignore.case = TRUE)] <- "Heat"
+StormData$EVTYPE[grepl("(hurri|opal)", StormData$EVTYPE,ignore.case = TRUE)] <- "Hurricane"
+```
+# Classifying data to those which are relevant to the question
+```{r seperate data}
+health <- StormData[,(c(8,23:24))]
+property<-StormData[,c(8,25:28)]
+```
+# Empty fields are replaced with magnitude zero
+```{r Load Property Data}
+table(property$PROPDMGEXP)
+table(property$CROPDMGEXP)
+property$PROPDMGEXP<-factor(property$PROPDMGEXP,levels=c("H","K","M","B","h","m","O"))
+property$PROPDMGEXP[is.na(property$PROPDMGEXP)] <- "O"
+property$CROPDMGEXP<-factor(property$CROPDMGEXP,levels=c("K","M","B","k","m","O"))
+property$CROPDMGEXP[is.na(property$CROPDMGEXP)] <- "O"
+```
+
+# Compensating damage with the appropriate multiplier
+ o(one) = 1
+ h(undred)=100
+ k(thousand)=1000
+ m(million)=1000000
+ b(billion)=1000000000
+
+```{r Adjusting Damage Totals}
+property$PROPDMGEXP <- as.character(property$PROPDMGEXP)
+property$CROPDMGEXP <- as.character(property$CROPDMGEXP)
+property$PROPDMGMLT <- 0
+property$CROPDMGMLT <- 0
+property$PROPDMGMLT[grepl("h", property$PROPDMGEXP,ignore.case = TRUE)]<-100
+property$PROPDMGMLT[grepl("k", property$PROPDMGEXP,ignore.case = TRUE)]<-1000
+property$PROPDMGMLT[grepl("m", property$PROPDMGEXP,ignore.case = TRUE)]<-1000000
+property$PROPDMGMLT[grepl("b", property$PROPDMGEXP,ignore.case = TRUE)]<-1000000000
+property$PROPDMGMLT[grepl("o", property$PROPDMGEXP,ignore.case = TRUE)]<-1
+property$CROPDMGMLT[grepl("k", property$CROPDMGEXP,ignore.case = TRUE)]<-1000
+property$CROPDMGMLT[grepl("m", property$CROPDMGEXP,ignore.case = TRUE)]<-1000000
+property$CROPDMGMLT[grepl("b", property$CROPDMGEXP,ignore.case = TRUE)]<-1000000000
+property$CROPDMGMLT[grepl("o", property$CROPDMGEXP,ignore.case = TRUE)]<-1
+property$PROPDMG <- property$PROPDMG * property$PROPDMGMLT
+property$CROPDMG <- property$CROPDMG * property$CROPDMGMLT
+property$total <- property$PROPDMG + property$CROPDMG
+```
+'''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''RESULTS''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''''
+# 1. Health Totals
+```{r Population Health Total}
+health.totals <- aggregate(cbind(FATALITIES,INJURIES) ~ EVTYPE, data = health, sum, na.rm=TRUE)
+health.totals$TOTAL <- health.totals$FATALITIES + health.totals$INJURIES
+health.totals <- health.totals[order(-health.totals$TOTAL), ]
+health.totals <- health.totals[1:25,]
+plot(health.totals$EVTYPE,
+     as.matrix(t(health.totals[,c(-1,-4)])),
+     colors = c("dark blue","red"),
+     columns = c("Fatalities","Injuries"),
+     main = "Most Harmful Event Type in the United States")
+```
+# 2. Population Health Assessment
+Tornado is the largest contributor to the severity in the public health.
+This however is not conclusive and require further investigation.
+# 3. Economic Impact 
+```{r Economic Total}
+economic.total <- aggregate(cbind(PROPDMG,CROPDMG, total) ~ EVTYPE, data = property, sum, na.rm=TRUE)
+economic.crop <- economic.total[order(-economic.total$CROPDMG), ]
+economic.crop <- economic.crop[1:25,]
+economic.prop <- economic.total[order(-economic.total$PROPDMG), ]
+economic.prop <- economic.prop[1:25,]
+plot(economic.prop$EVTYPE,
+     as.matrix(t(economic.prop[,c(-1,-3,-4)])),
+     colors = c("dark blue","red"),
+     columns = c("Property Damage"),
+     main = "Economic Impact of Weather on Propery Damage")
+plot(economic.crop$EVTYPE,
+     as.matrix(t(economic.crop[,c(-1,-2,-4)])),
+     colors = c("dark blue","red"),
+     columns = c("Crop Damage"),
+     main = "Economic Impact of Weather on Crop Damage")
+```     
+# 4. Economic Impact Assessment
+Drought has the largest effect on the crop whereas the flood contributes 
+most severe impact on the public health.
